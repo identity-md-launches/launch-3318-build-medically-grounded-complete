@@ -162,9 +162,10 @@ export function authorizeOrder(d: Db, user: User, orderId: string) {
   assert(o, 'Order not found.');
   requireClinicAccess(user, o.clinicId);
   assert(canAuthorize(user), 'Only a clinician can authorize a request.');
-  assert(o.status === 'awaiting_clinician', 'This request is not waiting for authorization.');
+  assert(o.status === 'awaiting_clinician' && !o.authorizedBy, 'This request is not waiting for authorization.');
   o.authorizedBy = user.name; o.authorizedAt = now();
-  event(o, user.name, 'submitted', 'Clinician reviewed and authorized the request');
+  // Authorization is recorded as a note; the status stays Awaiting Clinician until the hand-off moves it to Pharmacy Review.
+  event(o, user.name, null, 'Clinician reviewed and authorized the request', 'note');
   audit(d, user.name, 'order.authorize', 'order', o.id);
 }
 
@@ -173,7 +174,7 @@ export function returnToDraft(d: Db, user: User, orderId: string, note: string) 
   assert(o, 'Order not found.');
   requireClinicAccess(user, o.clinicId);
   assert(canAuthorize(user), 'Only a clinician can return a request for edits.');
-  assert(o.status === 'awaiting_clinician', 'Only requests awaiting a clinician can be returned.');
+  assert(o.status === 'awaiting_clinician' && !o.authorizedBy, 'Only requests awaiting a clinician can be returned.');
   event(o, user.name, 'draft', note.trim() || 'Returned to staff for edits');
 }
 
@@ -186,7 +187,7 @@ export async function sendToPharmacy(orderId: string, opts = { retries: 2, baseM
     return { ok: false, error: 'Already sending' };
   }
   const order = getDb().orders.find((o) => o.id === orderId);
-  if (!order || order.status !== 'submitted' || !order.authorizedBy) return { ok: false, error: 'Order is not ready to send.' };
+  if (!order || !['submitted', 'awaiting_clinician'].includes(order.status) || !order.authorizedBy) return { ok: false, error: 'Order is not ready to send.' };
   inflight.add(orderId);
   try {
     const adapter = createMockOrderAdapter(() => getDb().mockFailureMode);

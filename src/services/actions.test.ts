@@ -61,7 +61,9 @@ describe('order workflow', () => {
     expect([a.ok, b.ok].filter(Boolean).length).toBe(1);
     const o = getDb().orders.find((x) => x.id === id)!;
     expect(o.status).toBe('pharmacy_review');
-    expect(o.events.map((e) => e.status).filter(Boolean)).toEqual(['draft', 'submitted', 'awaiting_clinician', 'submitted', 'pharmacy_review']);
+    expect(o.events.map((e) => e.status).filter(Boolean)).toEqual(['draft', 'submitted', 'awaiting_clinician', 'pharmacy_review']);
+    expect(o.events.filter((e) => e.status === 'submitted').length).toBe(1);
+    expect(o.events.some((e) => e.kind === 'note' && /authorized/.test(e.note))).toBe(true);
     expect(getDb().orders.filter((x) => x.id === id).length).toBe(1);
     expect(getDb().integrationLog.some((l) => l.outcome === 'duplicate_ignored')).toBe(true);
   });

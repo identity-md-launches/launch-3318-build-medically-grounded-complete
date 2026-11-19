@@ -73,18 +73,17 @@ src/ui/           kit.tsx (components, router, fields), shell.tsx (portal layout
 src/pages/        public.tsx, clinic.tsx, admin.tsx
 tests/e2e/        acceptance.mjs (Playwright acceptance run against dist/)
 server/           schema.sql and README for the production backend (not deployed)
-docs/             ARCHITECTURE.md, INTEGRATIONS.md, DATA_MODEL.md
-artifacts/        validation.md (check results and design review)
+docs/             ARCHITECTURE.md, INTEGRATIONS.md, DATA_MODEL.md, VALIDATION.md
 DESIGN.md         design system as implemented
 ```
 
 ## Validation results (summary)
 
-Full record: [artifacts/validation.md](artifacts/validation.md).
+Full record with the command output, dates and environment: [docs/VALIDATION.md](docs/VALIDATION.md). Last run 2026-11-19.
 
 | Command | Result |
 | --- | --- |
-| `npm run build` (runs `tsc --noEmit`, then `vite build`) | Passed. JS 291.6 kB (84 kB gzip), CSS 17.7 kB |
+| `npm run build` (runs `tsc --noEmit`, then `vite build`) | Passed. JS 292.0 kB (84.3 kB gzip), CSS 17.7 kB |
 | `npm run typecheck` | Passed, no errors |
 | `npm test` | 13 of 13 unit tests passed |
 | `node tests/e2e/acceptance.mjs` against `dist/` | 21 of 21 checks passed: acceptance steps 1–10, invalid inputs, empty states, duplicate submit, role restrictions, reorder, mock failure, mobile navigation, no overflow at 320 and 390, no console errors |
@@ -100,7 +99,7 @@ The brief asked for separate agents for product/design, the clinic interface, th
 
 Runtime: `react` 18.3 and `react-dom` 18.3 (MIT).
 Build and test: `vite` 5.4 (MIT), `@vitejs/plugin-react` 4.7 (MIT), `typescript` 5.9 (Apache-2.0), `@types/react` and `@types/react-dom` (MIT), `vitest` 2.1 (MIT).
-Testing only, not installed in the project: Playwright 1.48 (Apache-2.0).
+Testing only, not installed in the project: Playwright 1.65.1 (Apache-2.0).
 Fonts: none bundled. The site uses the system UI font stack.
 Design guidance: Better Interface by Jakub Krehel (MIT). Documentation structure adapted from Impeccable by Paul Bakaus (Apache-2.0). Both were used as guidance; no code from them is included.
 The project's own code is marked `UNLICENSED` in package.json until the owner chooses a license.

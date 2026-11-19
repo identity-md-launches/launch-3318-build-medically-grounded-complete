@@ -162,7 +162,7 @@ await check('8. clinic-side history matches', async () => {
   await asUser('Pat Example');
   await go(`/app/orders/${orderId}`);
   const statuses = await page.locator('.timeline li').evaluateAll((els) => els.map((e) => e.getAttribute('data-event-status')).filter(Boolean));
-  const expected = ['shipped', 'processing', 'accepted', 'pharmacy_review', 'submitted', 'awaiting_clinician', 'submitted', 'draft'];
+  const expected = ['shipped', 'processing', 'accepted', 'pharmacy_review', 'awaiting_clinician', 'submitted', 'draft'];
   expect(JSON.stringify(statuses) === JSON.stringify(expected), `history ${statuses.join(',')}`);
   await page.getByText(/Mock tracking/).first().waitFor();
 });

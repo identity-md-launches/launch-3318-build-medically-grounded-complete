@@ -41,4 +41,4 @@ Each capability is an interface. To go live, implement the same interface **serv
 - **Validation:** `validateOrderForSubmit` runs before any hand-off (eligibility, availability, quantities, pathway compatibility, the `DEMO-` reference rule).
 - **Duplicate protection:** a draft-only submit guard, a disabled submit button, an in-flight set in `sendToPharmacy`, and an idempotency key per order.
 - **Retries:** `withRetry` uses exponential backoff, 2 retries by default, and retries only errors marked retryable.
-- **Failed requests:** the order stays **Submitted** with `integrationError`, the clinic sees a notice, and it appears under administration exceptions with **Retry hand-off**. Admins can turn on "Simulate pharmacy endpoint failures" to exercise this path.
+- **Failed requests:** the order keeps its status (**Submitted** for a clinician's own submission, **Awaiting Clinician** with `authorizedBy` set for a staff-prepared request a clinician has authorized) with `integrationError`, the clinic sees a notice, and it appears under administration exceptions with **Retry hand-off**. Admins can turn on "Simulate pharmacy endpoint failures" to exercise this path.

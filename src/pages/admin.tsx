@@ -137,7 +137,7 @@ function AdminOrder({ db, user, id }: { db: Db; user: User; id: string }) {
       )}
       <section className="card stack" aria-labelledby="su-h">
         <h2 id="su-h">Update simulated status</h2>
-        {next.length === 0 ? <p className="muted">{o.status === 'awaiting_clinician' ? 'Waiting on the clinic’s clinician. Administrators cannot authorize on a clinician’s behalf.' : o.status === 'draft' ? 'Drafts belong to the clinic until submitted.' : 'No further status changes from here.'}</p> : (
+        {next.length === 0 ? <p className="muted">{o.status === 'awaiting_clinician' && o.authorizedBy ? `Authorized by ${o.authorizedBy}; waiting for the mock pharmacy hand-off.` : o.status === 'awaiting_clinician' ? 'Waiting on the clinic’s clinician. Administrators cannot authorize on a clinician’s behalf.' : o.status === 'draft' ? 'Drafts belong to the clinic until submitted.' : 'No further status changes from here.'}</p> : (
           <>
             <div className="form-grid">
               <SelectField id="next-status" label="New status" value={to} onChange={setTo} options={[{ value: '', label: 'Choose a status' }, ...next.map((s) => ({ value: s, label: ORDER_STATUS_LABEL[s] }))]} />

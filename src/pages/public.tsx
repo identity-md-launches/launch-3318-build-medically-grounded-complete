@@ -65,7 +65,7 @@ export function Home() {
       <section className="hero">
         <div className="inner">
           <div>
-            <h1>Clinic medication sourcing, in one place</h1>
+            <h1>Source. Request. Track.</h1>
             <p className="lead">A portal where clinics browse pharmacy catalogs, submit order requests and follow each one to delivery.</p>
             <div className="btn-row">
               <Link to="/request-access" className="btn btn-primary">Request clinic access</Link>

@@ -500,7 +500,10 @@ function OrderDetail({ db, user, o }: { db: Db; user: User; o: Order }) {
       </div>
       {err && <Notice tone="bad"><p>{err}</p></Notice>}
       {o.integrationError && <Notice tone="warn"><p>The simulated pharmacy hand-off failed ({o.integrationError}). Platform support has been alerted and can retry. Your request is saved.</p></Notice>}
-      {o.status === 'awaiting_clinician' && (
+      {o.status === 'awaiting_clinician' && o.authorizedBy && (
+        <Notice tone="info"><p>Authorized by {o.authorizedBy}. Waiting for the simulated hand-off to move it to Pharmacy Review.</p></Notice>
+      )}
+      {o.status === 'awaiting_clinician' && !o.authorizedBy && (
         <section className="card stack" aria-labelledby="auth-h">
           <h2 id="auth-h">Clinician authorization</h2>
           {canAuthorize(user) ? (
