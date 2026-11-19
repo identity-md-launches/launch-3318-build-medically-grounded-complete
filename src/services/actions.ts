@@ -2,7 +2,7 @@
 // so they run identically in unit tests and in the browser. A production API would run these
 // server-side after authenticating the actor and checking tenant scope.
 import {
-  ADMIN_TRANSITIONS, CANCELLABLE, DEFAULT_PERMISSIONS, ORDER_STATUS_LABEL, TICKET_LABEL, canAuthorize, canTransition,
+  ADMIN_TRANSITIONS, CANCELLABLE, DEFAULT_PERMISSIONS, ORDER_STATUS_LABEL, TICKET_LABEL, canAuthorize, canTransition, handoffPending,
   validateApplication, validateOrderForSubmit, type ApplicationInput, type Errors,
 } from '../domain/rules';
 import type { Db, Lead, Order, OrderStatus, Role, Ticket, TicketStatus, User, VerificationStatus } from '../domain/types';
@@ -145,6 +145,8 @@ export function submitOrder(d: Db, user: User, orderId: string): { errors: Error
   // Reprice from the current catalog at submission.
   o.items = o.items.map((i) => { const p = d.products.find((x) => x.id === i.productId)!; return { ...i, unitPrice: p.unitPrice, dispensingFee: p.dispensingFee }; });
   o.submittedAt = now();
+  // Onboarding: the first valid submission completes the checklist item in the same update.
+  clinic.checklist.firstOrder = true;
   event(o, user.name, 'submitted', 'Request submitted on the platform. Not a prescription.');
   audit(d, user.name, 'order.submit', 'order', o.id);
   if (canAuthorize(user)) {
@@ -187,7 +189,7 @@ export async function sendToPharmacy(orderId: string, opts = { retries: 2, baseM
     return { ok: false, error: 'Already sending' };
   }
   const order = getDb().orders.find((o) => o.id === orderId);
-  if (!order || !['submitted', 'awaiting_clinician'].includes(order.status) || !order.authorizedBy) return { ok: false, error: 'Order is not ready to send.' };
+  if (!order || !handoffPending(order)) return { ok: false, error: 'Order is not ready to send.' };
   inflight.add(orderId);
   try {
     const adapter = createMockOrderAdapter(() => getDb().mockFailureMode);
@@ -197,6 +199,11 @@ export async function sendToPharmacy(orderId: string, opts = { retries: 2, baseM
     });
     update((d) => {
       const o = d.orders.find((x) => x.id === orderId)!;
+      if (!handoffPending(o)) {
+        // Another tab or an earlier attempt already completed the hand-off; never record it twice.
+        d.integrationLog.unshift({ id: nextId(d, 'I'), at: now(), adapter: adapter.name, operation: 'submit', outcome: 'duplicate_ignored', detail: `${orderId} no longer waiting for hand-off` });
+        return;
+      }
       if (res.ok) {
         o.externalRef = res.data!.externalRef; o.integrationError = undefined;
         const ph = d.pharmacies.find((p) => p.id === d.products.find((x) => x.id === o.items[0]?.productId)?.pharmacyId);
@@ -244,6 +251,7 @@ export function adminSetStatus(d: Db, admin: User, orderId: string, to: OrderSta
   const o = d.orders.find((x) => x.id === orderId);
   assert(o, 'Order not found.');
   assert(canTransition(o.status, to), `Cannot move from ${ORDER_STATUS_LABEL[o.status]} to ${ORDER_STATUS_LABEL[to]}.`);
+  assert(!(to === 'pharmacy_review' && handoffPending(o)), 'Send this order through the mock pharmacy hand-off; Pharmacy Review is recorded only after the adapter accepts it.');
   if (to === 'clarification_required') assert(note.trim().length >= 5, 'Say what the clinic needs to clarify.');
   if (to === 'shipped') o.trackingNumber = `MOCKTRK${o.id.replace(/\D/g, '')}`;
   const defaultNote = to === 'shipped' ? `Simulated shipment, mock tracking ${o.trackingNumber}` : `Simulated pharmacy update: ${ORDER_STATUS_LABEL[to]}`;

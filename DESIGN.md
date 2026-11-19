@@ -32,7 +32,7 @@ Primitives are named by hue (`--navy-900`, `--teal-600`, `--slate-200`, ...). Co
 | `--color-focus` | `--teal-600` | 2px focus outline |
 | Status pairs `--color-{info,warn,good,bad}-{bg,text}` | blue, amber, green, red | Status badges and notices only |
 
-Contrast: the design probe (`taste.mjs`) measured every text pair rendered on the home page at 320, 390 and 1440 wide and found all at or above 4.5:1 (3:1 for large text). Pairs on other routes were not measured individually; see `artifacts/validation.md`.
+Contrast: the design probe (`taste.mjs`) measured every text pair rendered on the home page at 320, 390 and 1440 wide and found all at or above 4.5:1 (3:1 for large text). Pairs on other routes were not measured individually. See the [validation record](docs/VALIDATION.md).
 
 ## Typography
 
@@ -63,6 +63,7 @@ Contrast: the design probe (`taste.mjs`) measured every text pair rendered on th
 - Breakpoints:
   - **≤900px:** the public nav collapses behind a **Menu** button and drops down below the header. The portal sidebar becomes an off-canvas drawer (`transform`, 200ms) with a scrim, closes on Escape, on scrim click and on navigation, and the topbar shows a **Menu** button. The role switcher takes its own full-width row.
   - **≤560px:** tables marked `.table-stack` become label/value rows using each cell's `data-label`. Padding shrinks.
+  - **≤360px:** page-header buttons (`.content > header .btn`) may wrap their label (`white-space: normal`, `max-width: 100%`), and `dl.kv` definition lists stack into one `minmax(0, 1fr)` column with a 4px gap and 8px below each value, so long actions and status badges stay inside 320px.
 - Wide tables that do not stack sit in `.table-wrap` (`overflow-x: auto`).
 - Checked in Chromium: no horizontal overflow at 320, 390 and 1440px on the home page (probe), and at 320/390 on eight key routes (E2E).
 

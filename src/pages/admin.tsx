@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   ADMIN_TRANSITIONS, AVAILABILITY_LABEL, CATEGORY_LABEL, ORDER_STATUS_LABEL, ROLE_LABEL, TICKET_LABEL, TYPE_LABEL, VERIFICATION_LABEL,
-  financials, money, orderCosts, US_STATES,
+  financials, handoffPending, money, orderCosts, US_STATES,
 } from '../domain/rules';
 import type { Availability, Db, FinancialAssumptions, Lead, OrderStatus, Pharmacy, User, VerificationStatus } from '../domain/types';
 import { update, useSession } from '../data/store';
@@ -20,7 +20,7 @@ export function AdminApp({ route }: { route: string }) {
     return <PortalShell nav={[]} route={path} title="Platform administration"><NoAccess message={`${ROLE_LABEL[user.role]} accounts cannot open platform administration. Supplier costs, margins and other clinics’ records are restricted to platform administrators.`} /></PortalShell>;
   }
   const pendingApps = db.clinics.filter((c) => ['submitted', 'pending_review', 'information_requested'].includes(c.verification)).length;
-  const exceptions = db.orders.filter((o) => o.integrationError || o.cancellationRequested || o.status === 'clarification_required').length;
+  const exceptions = db.orders.filter((o) => o.integrationError || handoffPending(o) || o.cancellationRequested || o.status === 'clarification_required').length;
   const openTickets = db.tickets.filter((t) => t.status === 'open' || t.status === 'awaiting_support').length;
   const nav: NavItem[] = [
     { to: '/admin', label: 'Overview', group: 'Operations' },
@@ -62,7 +62,7 @@ export function AdminApp({ route }: { route: string }) {
 function Overview({ db }: { db: Db }) {
   const f = financials(db, db.assumptions);
   const apps = db.clinics.filter((c) => c.verification !== 'approved' && c.verification !== 'rejected');
-  const exceptions = db.orders.filter((o) => o.integrationError || o.cancellationRequested || o.status === 'clarification_required');
+  const exceptions = db.orders.filter((o) => o.integrationError || handoffPending(o) || o.cancellationRequested || o.status === 'clarification_required');
   return (
     <>
       <PageHeader title="Overview">Everything here is simulated. Status changes stand in for pharmacy updates.</PageHeader>
@@ -77,7 +77,7 @@ function Overview({ db }: { db: Db }) {
           {apps.length === 0 ? <Empty title="No applications waiting" /> : <ul className="stack" style={{ listStyle: 'none', margin: 0, padding: 0 }}>{apps.map((c) => <li key={c.id} className="spread"><Link to={`/admin/clinics/${c.id}`}>{c.name}</Link><Badge tone="warn">{VERIFICATION_LABEL[c.verification]}</Badge></li>)}</ul>}
         </section>
         <section className="card"><div className="card-head"><h2>Exceptions and clarifications</h2><Link to="/admin/orders">All orders</Link></div>
-          {exceptions.length === 0 ? <Empty title="No exceptions" /> : <ul className="stack" style={{ listStyle: 'none', margin: 0, padding: 0 }}>{exceptions.map((o) => <li key={o.id} className="spread"><Link to={`/admin/orders/${o.id}`}><span className="mono">{o.id}</span></Link><span className="small">{o.integrationError ? 'Hand-off failed' : o.cancellationRequested ? 'Cancellation requested' : ORDER_STATUS_LABEL[o.status]}</span></li>)}</ul>}
+          {exceptions.length === 0 ? <Empty title="No exceptions" /> : <ul className="stack" style={{ listStyle: 'none', margin: 0, padding: 0 }}>{exceptions.map((o) => <li key={o.id} className="spread"><Link to={`/admin/orders/${o.id}`}><span className="mono">{o.id}</span></Link><span className="small">{o.integrationError ? 'Hand-off failed' : handoffPending(o) ? 'Hand-off not sent' : o.cancellationRequested ? 'Cancellation requested' : ORDER_STATUS_LABEL[o.status]}</span></li>)}</ul>}
         </section>
       </div>
     </>
@@ -90,7 +90,7 @@ function AdminOrders({ db }: { db: Db }) {
   const [q, setQ] = useState('');
   const [exOnly, setExOnly] = useState(false);
   const rows = db.orders.filter((o) => (!status || o.status === status) && (!clinic || o.clinicId === clinic) && (!q || o.id.toLowerCase().includes(q.toLowerCase().trim()))
-    && (!exOnly || o.integrationError || o.cancellationRequested || o.status === 'clarification_required'));
+    && (!exOnly || o.integrationError || handoffPending(o) || o.cancellationRequested || o.status === 'clarification_required'));
   return (
     <>
       <PageHeader title="Orders">All clinics. Update simulated statuses, clarifications, cancellations and failed hand-offs.</PageHeader>
@@ -114,7 +114,8 @@ function AdminOrder({ db, user, id }: { db: Db; user: User; id: string }) {
   const [err, setErr] = useState('');
   const [retrying, setRetrying] = useState(false);
   if (!o) return <div className="card"><Empty title="Order not found" action={<Link to="/admin/orders" className="btn">Back to orders</Link>} /></div>;
-  const next = ADMIN_TRANSITIONS[o.status] ?? [];
+  // An authorized order waiting on the mock hand-off reaches Pharmacy Review only through the adapter.
+  const next = (ADMIN_TRANSITIONS[o.status] ?? []).filter((s) => !(handoffPending(o) && s === 'pharmacy_review'));
   const clinic = db.clinics.find((c) => c.id === o.clinicId);
   const c = orderCosts(o, db.products, db.assumptions);
   return (
@@ -122,9 +123,18 @@ function AdminOrder({ db, user, id }: { db: Db; user: User; id: string }) {
       <PageHeader title={`Order ${o.id}`}><Link to="/admin/orders">Back to orders</Link> · {clinic?.name}</PageHeader>
       <div className="card row"><StatusBadge status={o.status} />{o.cancellationRequested && <Badge tone="warn">Cancellation requested</Badge>}{o.integrationError && <Badge tone="bad">Hand-off failed</Badge>}</div>
       {err && <Notice tone="bad"><p>{err}</p></Notice>}
-      {o.integrationError && (
-        <Notice tone="warn"><p>Mock adapter error: {o.integrationError}</p>
-          <button className="btn btn-sm" disabled={retrying} onClick={async () => { setRetrying(true); const r = await A.sendToPharmacy(o.id); setRetrying(false); toast(r.ok ? 'Retry succeeded (mock)' : `Retry failed: ${r.error}`); }}>{retrying ? 'Retrying…' : 'Retry hand-off'}</button></Notice>
+      {handoffPending(o) && (
+        <Notice tone="warn">
+          <p>{o.integrationError
+            ? `Mock adapter error: ${o.integrationError}`
+            : `Authorized by ${o.authorizedBy}, but the simulated hand-off has not been accepted. It may have been interrupted, for example by a reload during sending.`}</p>
+          <button className="btn btn-sm" disabled={retrying} aria-busy={retrying} onClick={async () => {
+            setRetrying(true);
+            const r = await A.sendToPharmacy(o.id);
+            setRetrying(false);
+            toast(r.ok ? `${o.id} moved to Pharmacy Review (mock)` : `Hand-off failed: ${r.error}`);
+          }}>{retrying ? 'Sending…' : o.integrationError ? 'Retry hand-off' : 'Send to mock pharmacy'}</button>
+        </Notice>
       )}
       {o.cancellationRequested && (
         <section className="card stack"><h2>Cancellation request</h2>
@@ -137,7 +147,7 @@ function AdminOrder({ db, user, id }: { db: Db; user: User; id: string }) {
       )}
       <section className="card stack" aria-labelledby="su-h">
         <h2 id="su-h">Update simulated status</h2>
-        {next.length === 0 ? <p className="muted">{o.status === 'awaiting_clinician' && o.authorizedBy ? `Authorized by ${o.authorizedBy}; waiting for the mock pharmacy hand-off.` : o.status === 'awaiting_clinician' ? 'Waiting on the clinic’s clinician. Administrators cannot authorize on a clinician’s behalf.' : o.status === 'draft' ? 'Drafts belong to the clinic until submitted.' : 'No further status changes from here.'}</p> : (
+        {next.length === 0 ? <p className="muted">{handoffPending(o) ? `Authorized by ${o.authorizedBy}. Send or retry the mock hand-off above; Pharmacy Review is recorded only after the adapter accepts it.` : o.status === 'awaiting_clinician' ? 'Waiting on the clinic’s clinician. Administrators cannot authorize on a clinician’s behalf.' : o.status === 'draft' ? 'Drafts belong to the clinic until submitted.' : 'No further status changes from here.'}</p> : (
           <>
             <div className="form-grid">
               <SelectField id="next-status" label="New status" value={to} onChange={setTo} options={[{ value: '', label: 'Choose a status' }, ...next.map((s) => ({ value: s, label: ORDER_STATUS_LABEL[s] }))]} />

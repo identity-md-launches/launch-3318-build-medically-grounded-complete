@@ -45,8 +45,8 @@ export const seedProducts = (): Product[] =>
     pharmacyProductId: `${r[6] === 'ph-northwind' ? 'NWX' : r[6] === 'ph-larkspur' ? 'LKS' : 'CBD'}-${4100 + i * 7}`,
     pathways: r[7], states: r[8], availability: r[9], shipping: r[10], unitPrice: r[11], dispensingFee: r[12],
     documents: [
-      { title: 'Fictional product information sheet', kind: 'PDF placeholder' },
-      ...(r[2] !== 'office_use' ? [{ title: 'Fictional pharmacy intake requirements', kind: 'PDF placeholder' }] : []),
+      { title: 'Fictional product information sheet', kind: 'Fictional demo document' },
+      ...(r[2] !== 'office_use' ? [{ title: 'Fictional pharmacy intake requirements', kind: 'Fictional demo document' }] : []),
     ],
     supplierNotes: 'Fictional contract terms. Pass-through pricing; no platform markup on medication.',
     active: true,

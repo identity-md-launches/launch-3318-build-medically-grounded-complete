@@ -1,8 +1,8 @@
 // Clinic workspace: dashboard, catalog, orders, support, account. Every query is scoped to the user's clinic.
-import { useMemo, useState } from 'react';
+import { Fragment, useState } from 'react';
 import {
-  AVAILABILITY_LABEL, CANCELLABLE, CATEGORY_LABEL, ORDER_STATUS_HELP, ORDER_STATUS_LABEL, PATHWAY_LABEL, ROLE_LABEL, SHIPPING_LABEL, TICKET_LABEL, TYPE_LABEL,
-  VERIFICATION_LABEL, canAuthorize, money, orderCosts, pathwaysForItems, scopeToClinic, validateOrderForSubmit, type Errors,
+  AVAILABILITY_LABEL, CANCELLABLE, CATEGORY_LABEL, ORDER_STATUS_LABEL, PATHWAY_LABEL, ROLE_LABEL, SHIPPING_LABEL, TICKET_LABEL, TYPE_LABEL,
+  VERIFICATION_LABEL, canAuthorize, money, needsClinicAttention, orderHelp, orderCosts, pathwaysForItems, scopeToClinic, validateOrderForSubmit, type Errors,
 } from '../domain/rules';
 import type { Category, Db, Order, OrderStatus, Pathway, Product, ProductType, Ticket, User } from '../domain/types';
 import { getDb, update, useSession } from '../data/store';
@@ -16,7 +16,7 @@ export function ClinicApp({ route }: { route: string }) {
     return <PortalShell nav={[]} route={route} title="Clinic workspace"><NoAccess message="Platform administrators use the administration workspace. Switch to a clinic user to see the clinic view." /><div><Link to="/admin" className="btn btn-primary">Open administration</Link></div></PortalShell>;
   }
   const orders = scopeToClinic(user, db.orders);
-  const attention = orders.filter((o) => ['awaiting_clinician', 'clarification_required'].includes(o.status) || o.status === 'draft').length;
+  const attention = orders.filter((o) => needsClinicAttention(o) || o.status === 'draft').length;
   const tickets = scopeToClinic(user, db.tickets).filter((t) => t.status === 'awaiting_clinic').length;
   const nav: NavItem[] = [
     { to: '/app', label: 'Dashboard' },
@@ -32,6 +32,7 @@ export function ClinicApp({ route }: { route: string }) {
   if (path === '/app') page = <Dashboard db={db} user={user} />;
   else if (path === '/app/catalog') page = <Catalog db={db} user={user} />;
   else if ((m = match('/app/catalog/:id', path))) page = <ProductDetail db={db} user={user} id={m.id} />;
+  else if ((m = match('/app/catalog/:id/doc/:n', path))) page = <SupportingDocument db={db} id={m.id} n={Number(m.n)} />;
   else if (path === '/app/compare') page = <Compare db={db} ids={(new URLSearchParams(route.split('?')[1]).get('ids') ?? '').split(',').filter(Boolean)} />;
   else if (path === '/app/orders') page = <Orders db={db} user={user} />;
   else if ((m = match('/app/orders/:id', path))) page = <OrderPage db={db} user={user} id={m.id} />;
@@ -55,7 +56,7 @@ function Dashboard({ db, user }: { db: Db; user: User }) {
   const clinic = clinicOf(db, user);
   const orders = scopeToClinic(user, db.orders);
   const open = orders.filter((o) => !['draft', 'delivered', 'cancelled'].includes(o.status));
-  const attention = orders.filter((o) => o.status === 'clarification_required' || (o.status === 'awaiting_clinician') || o.cancellationRequested);
+  const attention = orders.filter(needsClinicAttention);
   const favorites = (db.favorites[user.id] ?? []).map((id) => db.products.find((p) => p.id === id)).filter(Boolean) as Product[];
   const tickets = scopeToClinic(user, db.tickets).filter((t) => t.status !== 'resolved');
   const recent = orders.flatMap((o) => o.events.map((e) => ({ ...e, orderId: o.id }))).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 6);
@@ -78,7 +79,7 @@ function Dashboard({ db, user }: { db: Db; user: User }) {
           {attention.length === 0 ? <Empty title="Nothing needs you right now">Clarifications and authorizations will show here.</Empty> : (
             <ul className="stack" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {attention.map((o) => (
-                <li key={o.id} className="spread"><div><Link to={`/app/orders/${o.id}`}><span className="mono">{o.id}</span></Link><div className="small muted">{o.cancellationRequested ? 'Cancellation request pending' : ORDER_STATUS_HELP[o.status]}</div></div><StatusBadge status={o.status} /></li>
+                <li key={o.id} className="spread"><div><Link to={`/app/orders/${o.id}`}><span className="mono">{o.id}</span></Link><div className="small muted">{o.cancellationRequested ? 'Cancellation request pending' : orderHelp(o)}</div></div><StatusBadge status={o.status} /></li>
               ))}
             </ul>
           )}
@@ -219,10 +220,63 @@ function ProductDetail({ db, user, id }: { db: Db; user: User; id: string }) {
         <section className="card"><h2>Product details</h2><ProductFacts db={db} p={p} /></section>
         <section className="card stack">
           <h2>Supporting documents</h2>
-          <ul>{p.documents.map((d) => <li key={d.title}>{d.title} <span className="small muted">({d.kind}, not a real file)</span></li>)}</ul>
+          <ul>{p.documents.map((d, i) => <li key={d.title}><Link to={`/app/catalog/${p.id}/doc/${i}`}>{d.title}</Link> <span className="small muted">(fictional demo document)</span></li>)}</ul>
           <Notice><p>Demo listing. No clinical claims are made, and the pharmacy is fictional.</p></Notice>
         </section>
       </div>
+    </>
+  );
+}
+
+/** Lines of a fictional supporting document. Synthetic logistics and listing data only: no clinical, dosing or usage guidance. */
+function documentLines(db: Db, p: Product, n: number): { title: string; sections: [string, [string, string][]][] } | null {
+  const doc = p.documents[n];
+  if (!doc) return null;
+  const pharmacy = db.pharmacies.find((x) => x.id === p.pharmacyId)?.name ?? 'Fictional pharmacy';
+  const listing: [string, [string, string][]] = ['Listing', [
+    ['Product', p.name], ['Category', CATEGORY_LABEL[p.category]], ['Listing type', TYPE_LABEL[p.type]], ['Form', p.form], ['Strength (as listed)', p.strength],
+    ['Package size', p.packageSize], ['Fictional pharmacy', pharmacy], ['Pharmacy product ID', p.pharmacyProductId],
+  ]];
+  const logistics: [string, [string, string][]] = ['Fulfillment and logistics', [
+    ['Fulfillment pathways', p.pathways.map((x) => PATHWAY_LABEL[x]).join('; ')], ['State eligibility', p.states.join(', ')],
+    ['Availability', AVAILABILITY_LABEL[p.availability]], ['Shipping requirement', SHIPPING_LABEL[p.shipping]],
+    ['Listed price', `${money(p.unitPrice)} per package`], ['Pharmacy fee', `${money(p.dispensingFee)} per package`],
+  ]];
+  if (n === 0) return { title: doc.title, sections: [listing, logistics] };
+  return { title: doc.title, sections: [listing, ['What the fictional pharmacy expects on a platform request', [
+    ['Clinic status', 'Clinic approved in the demo workspace. Demo approval is not credential verification.'],
+    ['Ship-to location', `A clinic location in an eligible state (${p.states.join(', ')}).`],
+    ['Reference', p.type === 'patient_specific' ? 'A fictional reference in the form DEMO-… Never a real name or patient identifier.' : 'A purchase order reference in the form DEMO-….'],
+    ['Authorization', 'A clinician on the clinic’s team records authorization before the simulated hand-off.'],
+    ['Receiving', `${SHIPPING_LABEL[p.shipping]}. Someone at the location should be available to receive the package.`],
+    ['Questions', 'Open a support ticket linked to the order. Platform administration relays clarifications.'],
+  ]]] };
+}
+
+function SupportingDocument({ db, id, n }: { db: Db; id: string; n: number }) {
+  const p = db.products.find((x) => x.id === id && x.active);
+  const doc = p ? documentLines(db, p, n) : null;
+  if (!p || !doc) return <Empty title="Document not found" action={<Link to="/app/catalog" className="btn">Back to catalog</Link>} />;
+  const download = () => {
+    const text = [`${doc.title}: ${p.name}`, 'FICTIONAL DEMO DOCUMENT. Synthetic data from the Medically Grounded demo workspace. Not a real pharmacy document; contains no clinical, dosing or usage guidance.', '',
+      ...doc.sections.flatMap(([h, rows]) => [h, ...rows.map(([k, v]) => `  ${k}: ${v}`), ''])].join('\n');
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `${p.id}-${n === 0 ? 'product-sheet' : 'intake-requirements'}-demo.txt`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  return (
+    <>
+      <PageHeader title={doc.title} actions={<button className="btn" onClick={download}>Download text file</button>}>
+        <Link to={`/app/catalog/${p.id}`}>Back to {p.name}</Link>
+      </PageHeader>
+      <Notice tone="warn"><p><strong>Fictional demo document.</strong> Synthetic listing and logistics data from a fictional pharmacy. It is not a real product sheet and contains no clinical, dosing or usage guidance.</p></Notice>
+      <article className="card stack" aria-label={doc.title}>
+        {doc.sections.map(([h, rows]) => (
+          <section key={h} className="stack"><h2>{h}</h2><dl className="kv">{rows.map(([k, v]) => <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>)}</dl></section>
+        ))}
+      </article>
     </>
   );
 }
@@ -495,7 +549,7 @@ function OrderDetail({ db, user, o }: { db: Db; user: User; o: Order }) {
         <Link to="/app/orders">Back to orders</Link>
       </PageHeader>
       <div className="spread card">
-        <div className="row"><StatusBadge status={o.status} /><span>{ORDER_STATUS_HELP[o.status]}</span></div>
+        <div className="row"><StatusBadge status={o.status} /><span>{orderHelp(o)}</span></div>
         {o.trackingNumber && <span className="small">Mock tracking <span className="mono">{o.trackingNumber}</span></span>}
       </div>
       {err && <Notice tone="bad"><p>{err}</p></Notice>}
@@ -658,7 +712,10 @@ function Account({ db, user }: { db: Db; user: User }) {
   const [f, setF] = useState({ name: '', email: '', role: 'staff' as 'staff' | 'clinician' | 'clinic_admin', npi: '', licenseState: c.locations[0]?.state ?? 'CA', licenseNumber: '' });
   const [errors, setErrors] = useState<Errors>({});
   const canManage = user.permissions.manageUsers;
-  const done = useMemo(() => CHECKLIST.filter(([k]) => c.checklist[k]).length, [c]);
+  // firstOrder is also inferred from a saved Submitted event, so records created before the flag existed display correctly.
+  const firstOrderDone = c.checklist.firstOrder || db.orders.some((o) => o.clinicId === c.id && o.events.some((e) => e.status === 'submitted'));
+  const isDone = (k: string) => (k === 'firstOrder' ? firstOrderDone : c.checklist[k]);
+  const done = CHECKLIST.filter(([k]) => isDone(k)).length;
   return (
     <>
       <PageHeader title="Clinic account">Practice details, team and onboarding. Credential fields are fictional and never verified in the demo.</PageHeader>
@@ -682,7 +739,7 @@ function Account({ db, user }: { db: Db; user: User }) {
         <section className="card stack"><h2>Onboarding checklist</h2>
           <p className="small muted tabular">{done} of {CHECKLIST.length} complete</p>
           <ul style={{ listStyle: 'none', padding: 0, margin: 0 }} className="stack">
-            {CHECKLIST.map(([k, label]) => <li key={k} className="spread"><span>{label}</span><Badge tone={c.checklist[k] ? 'good' : 'neutral'}>{c.checklist[k] ? 'Done' : 'To do'}</Badge></li>)}
+            {CHECKLIST.map(([k, label]) => <li key={k} className="spread"><span>{label}</span><Badge tone={isDone(k) ? 'good' : 'neutral'}>{isDone(k) ? 'Done' : 'To do'}</Badge></li>)}
           </ul>
         </section>
         <section className="card stack"><h2>Locations</h2>

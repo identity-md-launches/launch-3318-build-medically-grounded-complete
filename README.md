@@ -60,7 +60,7 @@ PLAYWRIGHT_MODULE=/tmp/pw/node_modules/playwright/index.mjs node tests/e2e/accep
 - No backend, authentication, server-side tenant isolation, persistent database or server-side audit log is deployed. `server/` holds the schema and API scaffold only.
 - No real pharmacy, payment, carrier, NPI/license or email integration.
 - No hosted URL is produced by this repository. The committed `dist/` is the static deliverable; publishing happens outside this job.
-- Supporting documents are placeholders, not files.
+- Supporting documents are fictional demo documents generated in the browser from the listing (route `#/app/catalog/<id>/doc/<n>`, with a plain-text download). They contain synthetic listing and logistics data only, no clinical or dosing guidance.
 
 ## Project layout
 
@@ -83,10 +83,10 @@ Full record with the command output, dates and environment: [docs/VALIDATION.md]
 
 | Command | Result |
 | --- | --- |
-| `npm run build` (runs `tsc --noEmit`, then `vite build`) | Passed. JS 292.0 kB (84.3 kB gzip), CSS 17.7 kB |
+| `npm run build` (runs `tsc --noEmit`, then `vite build`) | Passed. JS 296.2 kB (85.6 kB gzip), CSS 17.9 kB |
 | `npm run typecheck` | Passed, no errors |
-| `npm test` | 13 of 13 unit tests passed |
-| `node tests/e2e/acceptance.mjs` against `dist/` | 21 of 21 checks passed: acceptance steps 1–10, invalid inputs, empty states, duplicate submit, role restrictions, reorder, mock failure, mobile navigation, no overflow at 320 and 390, no console errors |
+| `npm test` | 15 of 15 unit tests passed |
+| `node tests/e2e/acceptance.mjs` against `dist/` | 24 of 24 checks passed: acceptance steps 1–10, invalid inputs, empty states, duplicate submit, role restrictions, reorder, mock failure, recovery of a hand-off interrupted by a reload, supporting documents, onboarding checklist, mobile navigation, no overflow at 320 and 390 (measured against `clientWidth`), no console errors |
 | `taste.mjs` design probe | 16 of 16 checks passed |
 
 Limitations: browser checks ran in headless Chromium on Linux with fonts installed locally for the test only. No physical device, Safari, Firefox or screen reader was tested. Tenant isolation is only client-side because no real authentication exists.

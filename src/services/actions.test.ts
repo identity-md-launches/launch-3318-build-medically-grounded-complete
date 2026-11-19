@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { seedDb } from '../data/seed';
 import { getDb, resetDemo, update } from '../data/store';
-import { canTransition, financials, orderCosts, scopeToClinic, validateOrderForSubmit } from '../domain/rules';
+import { canTransition, financials, handoffPending, needsClinicAttention, orderCosts, orderHelp, scopeToClinic, validateOrderForSubmit } from '../domain/rules';
 import type { Db } from '../domain/types';
 import { mockLatency, PHARMACY_STATUS_MAP, withRetry } from '../integrations/adapters';
 import * as A from './actions';
@@ -67,6 +67,50 @@ describe('order workflow', () => {
     expect(getDb().orders.filter((x) => x.id === id).length).toBe(1);
     expect(getDb().integrationLog.some((l) => l.outcome === 'duplicate_ignored')).toBe(true);
   });
+  it('recovers a hand-off interrupted after authorization (reload mid-send)', async () => {
+    let id = '';
+    const admin = () => getDb().users.find((u) => u.role === 'platform_admin')!;
+    update((d) => {
+      const staff = user(d, 'u-harbor-staff');
+      id = A.createDraft(d, staff, 'cl-harbor').id;
+      A.updateDraft(d, staff, id, { items: [{ productId: 'prd-016', quantity: 1, unitPrice: 0, dispensingFee: 0 }], pathway: 'office_use', poNumber: 'DEMO-PO17' });
+      expect(A.submitOrder(d, staff, id).errors).toEqual({});
+      expect(d.clinics.find((c) => c.id === 'cl-harbor')!.checklist.firstOrder).toBe(true);
+      expect(needsClinicAttention(d.orders.find((o) => o.id === id)!)).toBe(true);
+      A.authorizeOrder(d, user(d, 'u-harbor-np'), id);
+    });
+    // The page reloads here: sendToPharmacy never runs. The saved order must still be recoverable.
+    let o = getDb().orders.find((x) => x.id === id)!;
+    expect(o.status).toBe('awaiting_clinician');
+    expect(handoffPending(o)).toBe(true);
+    expect(needsClinicAttention(o)).toBe(false);
+    expect(orderHelp(o)).toBe('Clinician authorized. Waiting for simulated pharmacy hand-off.');
+    // Administration sends it (the admin order page shows "Send to mock pharmacy" while handoffPending).
+    expect(admin().role).toBe('platform_admin');
+    expect((await A.sendToPharmacy(id, { retries: 0, baseMs: 1 })).ok).toBe(true);
+    o = getDb().orders.find((x) => x.id === id)!;
+    expect(o.events.map((e) => e.status).filter(Boolean)).toEqual(['draft', 'submitted', 'awaiting_clinician', 'pharmacy_review']);
+  });
+  it('lets administration send an authorized order whose hand-off never ran', async () => {
+    let id = '';
+    update((d) => {
+      d.mockFailureMode = false;
+      const np = user(d, 'u-harbor-np');
+      id = A.createDraft(d, np, 'cl-harbor').id;
+      A.updateDraft(d, np, id, { items: [{ productId: 'prd-016', quantity: 1, unitPrice: 0, dispensingFee: 0 }], pathway: 'office_use' });
+      expect(A.submitOrder(d, np, id).needsSend).toBe(true);
+    });
+    const admin = getDb().users.find((u) => u.role === 'platform_admin')!;
+    expect(handoffPending(getDb().orders.find((x) => x.id === id)!)).toBe(true);
+    expect(() => update((d) => A.adminSetStatus(d, admin, id, 'pharmacy_review', ''))).toThrow(/hand-off/);
+    expect((await A.sendToPharmacy(id, { retries: 0, baseMs: 1 })).ok).toBe(true);
+    const o = getDb().orders.find((x) => x.id === id)!;
+    expect(o.status).toBe('pharmacy_review');
+    expect(o.externalRef).toBeTruthy();
+    expect(handoffPending(o)).toBe(false);
+    expect((await A.sendToPharmacy(id, { retries: 0, baseMs: 1 })).ok).toBe(false);
+    expect(o.events.filter((e) => e.status === 'pharmacy_review').length).toBe(1);
+  });
   it('retries then records a failure when the mock endpoint fails', async () => {
     let id = '';
     update((d) => {
@@ -81,6 +125,7 @@ describe('order workflow', () => {
     const o = getDb().orders.find((x) => x.id === id)!;
     expect(o.status).toBe('submitted');
     expect(o.integrationError).toMatch(/timed out/);
+    expect(orderHelp(o)).toBe('Clinician authorized. Platform administration can retry the simulated hand-off.');
     expect(getDb().integrationLog.filter((l) => l.outcome === 'retrying').length).toBe(2);
     update((d) => { d.mockFailureMode = false; });
     expect((await A.sendToPharmacy(id, { retries: 0, baseMs: 1 })).ok).toBe(true);

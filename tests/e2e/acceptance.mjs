@@ -167,6 +167,12 @@ await check('8. clinic-side history matches', async () => {
   await page.getByText(/Mock tracking/).first().waitFor();
 });
 
+await check('onboarding checklist marks the first order request done', async () => {
+  await go('/app/account');
+  await page.locator('li.spread', { hasText: 'First order request' }).locator('.badge', { hasText: 'Done' }).waitFor();
+  await go(`/app/orders/${orderId}`);
+});
+
 await check('9. create, reply to and resolve a support ticket', async () => {
   await page.getByRole('link', { name: 'Ask about this order' }).click();
   await page.getByRole('button', { name: 'Open ticket' }).waitFor();
@@ -233,6 +239,64 @@ await check('mock failure handling and retry in admin', async () => {
   await page.getByLabel('Simulate pharmacy endpoint failures').uncheck();
 });
 
+const storedOrder = (id) => page.evaluate((x) => JSON.parse(localStorage.getItem('medically-grounded-demo-v1')).orders.find((o) => o.id === x), id);
+await check('reload during authorization leaves an order administration can send', async () => {
+  await asUser('Sam Patel');
+  await go('/app/orders');
+  await page.getByRole('button', { name: 'New order request' }).click();
+  await page.getByRole('heading', { name: 'Location' }).waitFor();
+  const id = page.url().split('/').pop();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.locator('#qty-prd-016').fill('1');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Office-use stock, ship to clinic').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Clinic PO number (optional)').fill('DEMO-PO17');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Submit request' }).click();
+  await page.getByRole('heading', { name: `Order ${id}` }).waitFor();
+  await asUser('Jordan Wells');
+  await go(`/app/orders/${id}`);
+  await page.evaluate(() => {
+    const ob = new MutationObserver(() => { if (document.querySelector('main')?.textContent.includes('Waiting for the simulated hand-off')) { ob.disconnect(); location.reload(); } });
+    ob.observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+  await page.getByRole('button', { name: 'Authorize request' }).click({ noWaitAfter: true }).catch(() => {});
+  await page.waitForTimeout(2300);
+  let o = await storedOrder(id);
+  const st = o.events.map((e) => e.status).filter(Boolean);
+  expect(JSON.stringify(st) === JSON.stringify(['draft', 'submitted', 'awaiting_clinician']) && o.authorizedBy && !o.externalRef, `reload did not interrupt the send: ${st.join(',')}`);
+  expect(await page.getByRole('button', { name: 'Authorize request' }).count() === 0, 'authorize button still shown');
+  await page.getByText('Clinician authorized. Waiting for simulated pharmacy hand-off.').first().waitFor();
+  expect(await page.getByText('A clinician must review and authorize it').count() === 0, 'stale authorization instruction');
+  await page.locator('#portal-nav').getByRole('link', { name: 'Dashboard', exact: true }).click();
+  await page.locator('#att-h').waitFor();
+  expect(await page.locator('#att-h').locator('xpath=../..').getByText(id).count() === 0, 'authorized order listed under needs attention');
+  await asUser('Riley Grant');
+  await go('/admin');
+  await page.getByText('Hand-off not sent').first().waitFor();
+  await go(`/admin/orders/${id}`);
+  expect(await page.getByLabel('New status').count() === 0 || !(await page.getByLabel('New status').locator('option').allTextContents()).includes('Pharmacy Review'), 'manual Pharmacy Review offered');
+  await page.getByRole('button', { name: 'Send to mock pharmacy' }).click();
+  await page.locator('.card.row .badge', { hasText: 'Pharmacy Review' }).waitFor({ timeout: 5000 });
+  o = await storedOrder(id);
+  expect(o.externalRef && o.events.filter((e) => e.status === 'pharmacy_review').length === 1, 'pharmacy review not recorded once');
+  expect(await page.getByRole('button', { name: /Send to mock pharmacy|Retry hand-off/ }).count() === 0, 'send button still offered');
+});
+
+await check('supporting documents open and download', async () => {
+  await asUser('Sam Patel');
+  await go('/app/catalog/prd-001');
+  await page.getByRole('link', { name: 'Fictional product information sheet' }).click();
+  await page.getByRole('heading', { name: 'Fictional product information sheet', level: 1 }).waitFor();
+  await page.getByText('Fictional demo document.').waitFor();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download text file' }).click()]);
+  expect(/prd-001-product-sheet-demo\.txt$/.test(dl.suggestedFilename()), `filename ${dl.suggestedFilename()}`);
+  await go('/app/catalog/prd-001');
+  await page.getByRole('link', { name: 'Fictional pharmacy intake requirements' }).click();
+  await page.getByRole('heading', { name: 'What the fictional pharmacy expects on a platform request' }).waitFor();
+});
+
 const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 const m = await mobile.newPage();
 m.setDefaultTimeout(6000);
@@ -259,10 +323,11 @@ await check('mobile: portal sidebar opens, navigates and closes', async () => {
 for (const w of [320, 390]) {
   await check(`no horizontal overflow at ${w}px on key routes`, async () => {
     await m.setViewportSize({ width: w, height: 800 });
-    for (const r of ['/', '/how-it-works', '/request-access', '/app', '/app/catalog', '/app/orders', '/admin/orders', '/admin/financials']) {
+    for (const r of ['/', '/how-it-works', '/request-access', '/app', '/app/catalog', '/app/orders', '/app/orders/MG-1038', '/app/account', '/app/catalog/prd-001/doc/1', '/admin/orders', '/admin/financials']) {
       if (r === '/admin/orders') { await m.goto(base + '#/demo'); await m.getByRole('button', { name: 'Open administration' }).click(); }
       await m.goto(base + '#' + r); await m.reload(); await m.waitForTimeout(60);
-      const over = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      // Compare against clientWidth: in mobile emulation window.innerWidth grows to match scrollWidth.
+      const over = await m.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(over <= 0, `${r} overflows by ${over}px`);
     }
   });

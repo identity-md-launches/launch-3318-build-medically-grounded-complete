@@ -18,6 +18,29 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   cancelled: 'Cancelled',
 };
 
+/**
+ * An order whose clinician authorization is saved but whose simulated pharmacy hand-off has not
+ * been accepted yet (still Submitted/Awaiting Clinician with no external reference). The authorization
+ * and this readiness are persisted in the same store update, so a reload mid-send leaves an order
+ * that administration can send or retry.
+ */
+export function handoffPending(o: Pick<Order, 'status' | 'authorizedBy' | 'externalRef'>): boolean {
+  return !!o.authorizedBy && !o.externalRef && (o.status === 'submitted' || o.status === 'awaiting_clinician');
+}
+
+/** Clinic-facing explanation of an order's state, aware of authorization and hand-off progress. */
+export function orderHelp(o: Pick<Order, 'status' | 'authorizedBy' | 'externalRef' | 'integrationError'>): string {
+  if (handoffPending(o)) return o.integrationError
+    ? 'Clinician authorized. Platform administration can retry the simulated hand-off.'
+    : 'Clinician authorized. Waiting for simulated pharmacy hand-off.';
+  return ORDER_STATUS_HELP[o.status];
+}
+
+/** True when the clinic has a task on this order (authorization, clarification or pending cancellation). */
+export function needsClinicAttention(o: Pick<Order, 'status' | 'authorizedBy' | 'cancellationRequested'>): boolean {
+  return o.status === 'clarification_required' || (o.status === 'awaiting_clinician' && !o.authorizedBy) || o.cancellationRequested;
+}
+
 export const ORDER_STATUS_HELP: Record<OrderStatus, string> = {
   draft: 'Being prepared. Not visible to the pharmacy.',
   submitted: 'Request recorded on the platform. Not yet reviewed by a pharmacy.',

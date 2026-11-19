@@ -271,6 +271,12 @@ dl.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
   .table-stack td::before { content: attr(data-label); color: var(--color-text-secondary); font-size: var(--text-sm); text-align: left; }
   .table-stack td.num { text-align: right; }
 }
+/* Very narrow phones: let header actions wrap and stack definition lists so badges and long labels stay inside 320px. */
+@media (max-width: 360px) {
+  .content > header .btn { max-width: 100%; white-space: normal; text-align: center; }
+  dl.kv { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  dl.kv dd:not(:last-child) { margin-bottom: var(--space-2); }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
